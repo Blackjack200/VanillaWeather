@@ -21,7 +21,7 @@ class WeatherCommand extends Command implements PluginOwned{
 use PluginOwnedTrait;
     public function __construct(Plugin $plugin){
         $this->owningPlugin = $plugin;
-        parent::__construct("weather", "changes the weather", "/weather <clear|rain|thunder> [duration: int]");
+        parent::__construct("weather", "changes the weather", "/weather <clear|rain|thunder>");
         DefaultPermissions::registerPermission(
             new Permission(Weather::COMMAND_WEATHER),
             [PermissionManager::getInstance()->getPermission(DefaultPermissionNames::GROUP_OPERATOR)]
@@ -38,31 +38,21 @@ use PluginOwnedTrait;
         }
         $world = $sender->getWorld();
         $weather = strtolower((string)array_shift($args));
-        $time = array_shift($args);
-        if($time === null){
-            $time = rand(300, 900);
-        }elseif($time <= 0){
-            $time = -1;
-        }
-        if($time != intval($time)){
-            $sender->sendMessage(TextFormat::RED."Time must be a number");
-            return;
-        }
+
         switch($weather){
             case "clear":
-                Weather::changeWeather($world, Weather::CLEAR, $time * 20);
+                Weather::changeWeather($world, Weather::CLEAR, 100 * 20);
                 break;
             case "rain":
-                Weather::changeWeather($world, Weather::RAIN, $time * 20);
+                Weather::changeWeather($world, Weather::RAIN, 100 * 20);
                 break;
             case "thunder":
-                Weather::changeWeather($world, Weather::THUNDER, $time * 20);
+                Weather::changeWeather($world, Weather::THUNDER, 100 * 20);
                 break;
             default:
                 $sender->sendMessage(TextFormat::RED."Unknown argument ".$weather);
                 break;
         }
-        $time == -1 ? $messageTime = TextFormat::YELLOW." forever" : $messageTime = " for ".TextFormat::YELLOW.$time.TextFormat::GREEN." seconds";
-        $sender->sendMessage(TextFormat::GREEN."Weather changed to ".TextFormat::YELLOW.$weather.TextFormat::GREEN.$messageTime);
+        $sender->sendMessage(TextFormat::GREEN."Weather changed to ".TextFormat::YELLOW.$weather.TextFormat::GREEN." forever");
     }
 }

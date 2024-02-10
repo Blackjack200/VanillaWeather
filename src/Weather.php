@@ -22,7 +22,6 @@ use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
 use pocketmine\world\World;
 use PrograMistV1\Weather\commands\WeatherCommand;
-use PrograMistV1\Weather\events\ThunderBoltSpawnEvent;
 use PrograMistV1\Weather\events\WeatherChangeEvent;
 
 class Weather extends PluginBase implements Listener{
@@ -33,7 +32,6 @@ class Weather extends PluginBase implements Listener{
 
     protected function onEnable() : void{
         $this->getServer()->getPluginManager()->registerEvents($this, $this);
-        $this->getScheduler()->scheduleRepeatingTask(new WeatherTask($this->getServer()->getWorldManager()), 1);
         $this->getServer()->getCommandMap()->register("vanillaweather", new WeatherCommand($this));
     }
 
@@ -85,45 +83,6 @@ class Weather extends PluginBase implements Listener{
             ];
         }
         NetworkBroadcastUtils::broadcastPackets([$player], $packets);
-    }
-
-    public static function generateThunderBolt(World $world, int $x, int $y, int $z, bool $doFire = false) : void{
-        $ev = new ThunderBoltSpawnEvent($world, $x, $y, $z, $doFire);
-        $ev->call();
-        if($ev->isCancelled()){
-            return;
-        }
-        $id = Entity::nextRuntimeId();
-        $packets[] = AddActorPacket::create(
-            $id,
-            $id,
-            "minecraft:lightning_bolt",
-            new Vector3($x, $y, $z),
-            null,
-            0,
-            0,
-            0,
-            0,
-            [],
-            [],
-            new PropertySyncData([], []),
-            []
-        );
-        $packets[] = PlaySoundPacket::create(
-            "ambient.weather.thunder",
-            $x,
-            $y,
-            $z,
-            10,
-            1
-        );
-        NetworkBroadcastUtils::broadcastPackets($world->getPlayers(), $packets);
-        if($ev->isDoFire()){
-            $block = $world->getBlockAt($x, $y + 1, $z);
-            if($block->getTypeId() === BlockTypeIds::AIR){
-                $world->setBlockAt($x, $y + 1, $z, VanillaBlocks::FIRE());
-            }
-        }
     }
 
     public function onPlayerTeleport(EntityTeleportEvent $event) : void{
