@@ -4,19 +4,12 @@ declare(strict_types=1);
 
 namespace PrograMistV1\Weather;
 
-use pocketmine\block\BlockTypeIds;
-use pocketmine\block\VanillaBlocks;
-use pocketmine\entity\Entity;
 use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\Listener;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\world\WorldInitEvent;
-use pocketmine\math\Vector3;
 use pocketmine\network\mcpe\NetworkBroadcastUtils;
-use pocketmine\network\mcpe\protocol\AddActorPacket;
 use pocketmine\network\mcpe\protocol\LevelEventPacket;
-use pocketmine\network\mcpe\protocol\PlaySoundPacket;
-use pocketmine\network\mcpe\protocol\types\entity\PropertySyncData;
 use pocketmine\network\mcpe\protocol\types\LevelEvent;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
@@ -62,11 +55,7 @@ class Weather extends PluginBase implements Listener{
                 LevelEventPacket::create(LevelEvent::STOP_THUNDER, 0, null)
             ];
         }
-        foreach($world->getPlayers() as $player){
-            foreach($packets as $packet){
-                $player->getNetworkSession()->sendDataPacket($packet);
-            }
-        }
+	    NetworkBroadcastUtils::broadcastPackets($world->getPlayers(), $packets);
     }
 
     public static function changeWeatherForPlayer(Player $player, ?World $world = null) : void{
@@ -89,7 +78,10 @@ class Weather extends PluginBase implements Listener{
         if(!($player = $event->getEntity()) instanceof Player){
             return;
         }
-        self::changeWeatherForPlayer($player, $event->getTo()->getWorld());
+	    if ($event->getTo()->getWorld() === $event->getFrom()->getWorld()) {
+		    return;
+	    }
+	    self::changeWeatherForPlayer($player, $event->getTo()->getWorld());
     }
 
     public function onWorldInit(WorldInitEvent $event) : void{
