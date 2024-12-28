@@ -13,6 +13,7 @@ use pocketmine\network\mcpe\protocol\LevelEventPacket;
 use pocketmine\network\mcpe\protocol\types\LevelEvent;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
+use pocketmine\world\format\ThreadedWorldProvider;
 use pocketmine\world\World;
 use PrograMistV1\Weather\commands\WeatherCommand;
 use PrograMistV1\Weather\events\WeatherChangeEvent;
@@ -39,13 +40,18 @@ class Weather extends PluginBase implements Listener{
             return;
         }
         $worldData = $world->getProvider()->getWorldData();
+	    if (interface_exists(ThreadedWorldProvider::class)) {
+		    $worldData = $worldData->get();
+	    }
         $worldData->setRainTime($time);
         $worldData->setRainLevel(match ($weather) {
             self::RAIN => 0.5,
             self::THUNDER => 1,
             default => 0
         });
-        if($weather === self::RAIN){
+	    $worldData->save();
+
+	    if($weather === self::RAIN){
             $packets = [LevelEventPacket::create(LevelEvent::START_RAIN, 65535, null)];
         }elseif($weather === self::THUNDER){
             $packets = [LevelEventPacket::create(LevelEvent::START_THUNDER, 65535, null)];
@@ -60,7 +66,11 @@ class Weather extends PluginBase implements Listener{
 
     public static function changeWeatherForPlayer(Player $player, ?World $world = null) : void{
         $world ?? $world = $player->getWorld();
-        $level = $world->getProvider()->getWorldData()->getRainLevel();
+	    $data = $world->getProvider()->getWorldData();
+	    if (interface_exists(ThreadedWorldProvider::class)) {
+		    $data = $data->get();
+	    }
+	    $level = $data->getRainLevel();
         if($level == 0.5){
             $packets = [LevelEventPacket::create(LevelEvent::START_RAIN, 65535, null)];
         }elseif($level == 1){
