@@ -8,12 +8,14 @@ use pocketmine\event\entity\EntityTeleportEvent;
 use pocketmine\event\Listener;
 use pocketmine\event\player\PlayerJoinEvent;
 use pocketmine\event\world\WorldInitEvent;
-use pocketmine\network\mcpe\NetworkBroadcastUtils;
+use pocketmine\network\mcpe\compression\ZlibCompressor;
 use pocketmine\network\mcpe\protocol\LevelEventPacket;
+use pocketmine\network\mcpe\protocol\ProtocolInfo;
+use pocketmine\network\mcpe\protocol\serializer\PacketBatch;
 use pocketmine\network\mcpe\protocol\types\LevelEvent;
 use pocketmine\player\Player;
 use pocketmine\plugin\PluginBase;
-use pocketmine\world\format\ThreadedWorldProvider;
+use pocketmine\utils\BinaryStream;
 use pocketmine\world\World;
 use PrograMistV1\Weather\commands\WeatherCommand;
 use PrograMistV1\Weather\events\WeatherChangeEvent;
@@ -23,8 +25,32 @@ class Weather extends PluginBase implements Listener{
     public const RAIN = 1;
     public const THUNDER = 2;
     public const COMMAND_WEATHER = "vanillaweather.weather.command";
+	/**
+	 * @var array<int, array<int,string>>
+	 */
+	private static array $packets = [];
 
-    protected function onEnable() : void{
+	private static function makeCache(int $protocolId) : void {
+		if (!isset(self::$packets[$protocolId])) {
+			foreach ([self::CLEAR, self::RAIN, self::THUNDER] as $weather) {
+				$packets = match ($weather) {
+					self::RAIN => [LevelEventPacket::create(LevelEvent::START_RAIN, 65535, null)],
+					self::THUNDER => [LevelEventPacket::create(LevelEvent::START_THUNDER, 65535, null)],
+					default => [
+						LevelEventPacket::create(LevelEvent::STOP_RAIN, 0, null),
+						LevelEventPacket::create(LevelEvent::STOP_THUNDER, 0, null),
+					]
+				};
+				$encoder = new BinaryStream();
+				PacketBatch::encodePackets($encoder, $protocolId, $packets);
+				$compressor = ZlibCompressor::getInstance();
+				$protocolAddition = $protocolId >= ProtocolInfo::PROTOCOL_1_20_60 ? chr($compressor->getNetworkId()) : '';
+				self::$packets[$protocolId][$weather] = $protocolAddition . $compressor->compress($encoder->getBuffer());
+			}
+		}
+	}
+
+	protected function onEnable() : void {
         $this->getServer()->getPluginManager()->registerEvents($this, $this);
         $this->getServer()->getCommandMap()->register("vanillaweather", new WeatherCommand($this));
     }
@@ -40,48 +66,34 @@ class Weather extends PluginBase implements Listener{
             return;
         }
         $worldData = $world->getProvider()->getWorldData();
-	    if (interface_exists(ThreadedWorldProvider::class)) {
-		    $worldData = $worldData->get();
-	    }
         $worldData->setRainTime($time);
         $worldData->setRainLevel(match ($weather) {
             self::RAIN => 0.5,
-            self::THUNDER => 1,
-            default => 0
+	        self::THUNDER => 1.0,
+	        default => 0.0
         });
 	    $worldData->save();
 
-	    if($weather === self::RAIN){
-            $packets = [LevelEventPacket::create(LevelEvent::START_RAIN, 65535, null)];
-        }elseif($weather === self::THUNDER){
-            $packets = [LevelEventPacket::create(LevelEvent::START_THUNDER, 65535, null)];
-        }else{
-            $packets = [
-                LevelEventPacket::create(LevelEvent::STOP_RAIN, 0, null),
-                LevelEventPacket::create(LevelEvent::STOP_THUNDER, 0, null)
-            ];
-        }
-	    NetworkBroadcastUtils::broadcastPackets($world->getPlayers(), $packets);
+	    foreach ($world->getPlayers() as $player) {
+		    $session = $player->getNetworkSession();
+		    $protocolId = $session->getProtocolId();
+		    self::makeCache($protocolId);
+		    $session->queueCompressed(self::$packets[$protocolId][$weather] ?? self::$packets[$protocolId][0]);
+	    }
     }
 
     public static function changeWeatherForPlayer(Player $player, ?World $world = null) : void{
         $world ?? $world = $player->getWorld();
-	    $data = $world->getProvider()->getWorldData();
-	    if (interface_exists(ThreadedWorldProvider::class)) {
-		    $data = $data->get();
-	    }
-	    $level = $data->getRainLevel();
-        if($level == 0.5){
-            $packets = [LevelEventPacket::create(LevelEvent::START_RAIN, 65535, null)];
-        }elseif($level == 1){
-            $packets = [LevelEventPacket::create(LevelEvent::START_THUNDER, 65535, null)];
-        }else{
-            $packets = [
-                LevelEventPacket::create(LevelEvent::STOP_RAIN, 0, null),
-                LevelEventPacket::create(LevelEvent::STOP_THUNDER, 0, null)
-            ];
-        }
-        NetworkBroadcastUtils::broadcastPackets([$player], $packets);
+	    $level = $world->getProvider()->getWorldData()->getRainLevel();
+	    $weather = match ($level) {
+		    0.5 => self::RAIN,
+		    1.0 => self::THUNDER,
+		    default => self::CLEAR,
+	    };
+	    $session = $player->getNetworkSession();
+	    $protocolId = $session->getProtocolId();
+	    self::makeCache($protocolId);
+	    $session->queueCompressed(self::$packets[$protocolId][$weather] ?? self::$packets[$protocolId][0]);
     }
 
     public function onPlayerTeleport(EntityTeleportEvent $event) : void{
